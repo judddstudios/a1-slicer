@@ -144,6 +144,20 @@
       #layers .lbl { min-width: 0; flex: 1; }
       #legend { max-height: 45%; overflow-y: auto; }
     }
+    #search { position: absolute; inset: 0; background: var(--bg); display: flex; flex-direction: column; z-index: 5; }
+    #search .bar-top { display: flex; gap: 8px; padding: 14px; border-bottom: 1px solid var(--line); align-items: center; flex-wrap: wrap; }
+    #search input[type=search] { flex: 1; min-width: 160px; padding: 9px 10px; }
+    #search .bar-top a { text-decoration: none; }
+    #search .results { flex: 1; overflow-y: auto; padding: 14px; display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); grid-auto-rows: max-content; gap: 12px; align-content: start; }
+    #search .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; cursor: pointer; display: flex; flex-direction: column; }
+    #search .card:hover { border-color: var(--accent); }
+    #search .card img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; background: var(--field); display: block; flex: none; }
+    #search .card .t { padding: 8px 10px 2px; font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #search .card .s { padding: 0 10px 8px; color: var(--muted); font-size: 12px; }
+    #search .files { padding: 0 10px 10px; display: flex; flex-direction: column; gap: 5px; color: var(--muted); font-size: 12px; }
+    #search .files .small-btn { text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: none; color: var(--text); }
+    #search .note { grid-column: 1 / -1; color: var(--muted); text-align: center; padding: 30px 0; }
+    #search .more { grid-column: 1 / -1; justify-self: center; }
     /* Fine-tuning left out of the simple page. Remove this rule, and the fixed values in SIMPLE_SETTINGS, to bring it back */
     .complex { display: none !important; }
   </style>
@@ -263,9 +277,9 @@
 
   <main>
     <div id="view"></div>
-    <div id="empty"><div>Add models to see them here<br><small>or find some on Printables (top right)</small></div></div>
+    <div id="empty"><div>Add models to see them here<br><small>or use Find models (top right)</small></div></div>
     <div class="overlay seg" id="tabs"><button data-v="model" class="on">Plate</button><button data-v="preview" disabled>Toolpaths</button></div>
-    <div class="overlay" id="find"><a class="small-btn primary" target="_blank" rel="noopener" href="https://www.printables.com/search/models">Printables ↗</a> <a class="small-btn" target="_blank" rel="noopener" href="https://makerworld.com/">MakerWorld ↗</a></div>
+    <div class="overlay" id="find"><button class="small-btn primary" id="open-search">Find models</button> <a class="small-btn" target="_blank" rel="noopener" href="https://makerworld.com/">MakerWorld ↗</a></div>
     <div class="overlay" id="dims" hidden></div>
     <div class="overlay" id="legend"></div>
     <div class="overlay" id="loading">Loading…</div>
@@ -278,6 +292,16 @@
       </div>
     </div>
 
+
+    <div id="search" hidden>
+      <div class="bar-top">
+        <input type="search" id="q" placeholder="Search Printables, e.g. phone stand">
+        <button class="small-btn primary" id="go">Search</button>
+        <button class="small-btn" id="close-search">Close</button>
+      </div>
+      <div class="results" id="results"><div class="note">Search Printables and add a model straight to the plate.<br>
+        The Pi does the searching, so results take a few seconds.</div></div>
+    </div>
   </main>
 
   <script type="module">
@@ -333,7 +357,6 @@
     }
     const LABELS = {
       quality: { DRAFT: 'Draft (0.24 mm)', STANDARD: 'Standard (0.20 mm)', STRENGTH: 'Strength (0.20 mm)', OPTIMAL: 'Optimal (0.16 mm)', FINE: 'Fine (0.12 mm)', EXTRA_FINE: 'Extra fine (0.08 mm)' },
-      filament: { PLA: 'PLA', PETG: 'PETG', TPU: 'TPU (flexible)', ABS: 'ABS' },
       printer: { A1M: 'A1 mini' },
     };
     const THICKNESS_HINT = {
@@ -363,6 +386,8 @@
         b.onclick = () => { prefs[key] = b.dataset.v; save(); segment(el, key, onChange); onChange && onChange(); };
       });
     }
+    const priceOf = (filament) => prefs.prices[filament] ?? OPTIONS.filament_prices[filament];
+
     function fillSelect(el, values, labels, key, onChange) {
       el.replaceChildren(...values.map(v => new Option(labels ? (labels[v] || v) : v, v)));
       if (!values.includes(prefs[key])) prefs[key] = values.includes('STANDARD') ? 'STANDARD' : values[0];
@@ -373,13 +398,13 @@
     function renderSettings() {
       const p = OPTIONS.printers[prefs.printer];
       fillSelect($('quality'), p.quality, LABELS.quality, 'quality', loadDefaults);
-      fillSelect($('filament'), p.filament, LABELS.filament, 'filament', () => { renderSettings(); loadDefaults(); });
+      fillSelect($('filament'), p.filament, OPTIONS.filament_labels, 'filament', () => { renderSettings(); loadDefaults(); });
       const off = prefs.support === 'OFF';
       $('support-extra').classList.toggle('disabled', off);
       $('thickness-hint').textContent = off ? '' : THICKNESS_HINT[prefs.support][prefs.thickness];
       $('adhesion-hint').textContent = ADHESION_HINT[prefs.adhesion] || '';
-      $('price-label').textContent = `${LABELS.filament[prefs.filament] || prefs.filament} price per kg`;
-      $('price').value = prefs.prices[prefs.filament] ?? '';
+      $('price-label').textContent = `${OPTIONS.filament_labels[prefs.filament] || prefs.filament} price per kg`;
+      $('price').value = priceOf(prefs.filament) ?? '';
       if (mode === 'model') setBed(p.bed);
       renderAdvanced();
     }
@@ -492,7 +517,8 @@
       }
       $('price').onchange = () => {
         const v = parseFloat($('price').value);
-        prefs.prices[prefs.filament] = isNaN(v) ? DEFAULT_PRICES[prefs.filament] : Math.max(0, v);
+        if (isNaN(v)) delete prefs.prices[prefs.filament]; else prefs.prices[prefs.filament] = Math.max(0, v);
+        prefs.prices = { ...DEFAULT_PRICES, ...prefs.prices };
         save(); renderSettings();
         if (lastResult) $('summary').replaceChildren(...summaryNodes(lastResult));
         loadRecent();
@@ -1568,7 +1594,7 @@
     }
 
     function cost(sum, filament) {
-      const price = prefs.prices[filament];
+      const price = priceOf(filament);
       return sum && sum.grams != null && price != null ? sum.grams / 1000 * price : null;
     }
     function fmtSummary(sum, filament) {
@@ -1623,6 +1649,90 @@
         }));
         $('recent-wrap').hidden = !items.length;
       } catch (e) {}
+    }
+
+    // ---------- Printables search ----------
+    // Printables doesn't let web pages call it, so each request goes to the Pi through GitHub, like a slice does
+    const ASK_WAIT_MS = 30000, DOWNLOAD_WAIT_MS = 180000, ASK_POLL_MS = 1500;
+    async function askPi(request) {
+      const id = newJobId();
+      const tree = (await gh('POST', 'git/trees', { tree: [{ path: 'ask.json', mode: '100644', type: 'blob', content: JSON.stringify(request) }] })).sha;
+      const sha = (await gh('POST', 'git/commits', { message: `ask ${id}`, tree, parents: [] })).sha;
+      await gh('POST', 'git/refs', { ref: `refs/heads/ask/${id}`, sha });
+      const branch = `answer/${id}`, deadline = Date.now() + (request.kind === 'download' ? DOWNLOAD_WAIT_MS : ASK_WAIT_MS);
+      for (;;) {
+        let text = null;
+        try { text = await fileAt(branch, 'answer.json', 'text'); } catch (e) { if (e.status !== 404) throw e; }
+        if (text !== null) {
+          const answer = JSON.parse(text);
+          if (answer.has_model) answer.model = await fileAt(branch, 'model.bin', 'blob');
+          gh('DELETE', `git/refs/heads/${branch}`).catch(() => {});
+          if (answer.error) throw new Error(answer.error);
+          return answer;
+        }
+        if (Date.now() > deadline) {
+          gh('DELETE', `git/refs/heads/ask/${id}`).catch(() => {});
+          throw new Error("The Pi didn't answer. Is it switched on and online?");
+        }
+        await new Promise(done => setTimeout(done, ASK_POLL_MS));
+      }
+    }
+    let searchQ = '', searchOffset = 0;
+    $('open-search').onclick = () => { $('search').hidden = false; $('q').focus(); };
+    $('close-search').onclick = () => $('search').hidden = true;
+    $('q').addEventListener('keydown', e => { if (e.key === 'Enter') runSearch(true); });
+    $('go').onclick = () => runSearch(true);
+    function note(text) { const d = document.createElement('div'); d.className = 'note'; d.textContent = text; return d; }
+    async function runSearch(fresh) {
+      if (fresh) { searchQ = $('q').value.trim(); searchOffset = 0; if (!searchQ) return; $('results').replaceChildren(note('Searching… this takes a few seconds')); }
+      const moreButton = $('results').querySelector('.more');
+      if (moreButton) { moreButton.disabled = true; moreButton.textContent = 'Loading…'; }
+      try {
+        const j = await askPi({ kind: 'search', q: searchQ, offset: searchOffset });
+        const cards = j.items.map(card);
+        moreButton?.remove();
+        if (fresh) $('results').replaceChildren(...(cards.length ? cards : [note('No models found')]));
+        else $('results').append(...cards);
+        searchOffset += j.items.length;
+        if (searchOffset < j.total && j.items.length) {
+          const more = document.createElement('button'); more.className = 'small-btn more'; more.textContent = 'More results';
+          more.onclick = () => runSearch(false);
+          $('results').append(more);
+        }
+      } catch (e) { $('results').replaceChildren(note(`Search failed: ${e.message || 'no connection'}`)); }
+    }
+    function card(it) {
+      const c = document.createElement('div'); c.className = 'card';
+      const img = document.createElement('img'); img.src = it.image; img.alt = ''; img.loading = 'lazy';
+      const t = document.createElement('div'); t.className = 't'; t.textContent = it.name; t.title = it.name;
+      const s = document.createElement('div'); s.className = 's'; s.textContent = `♥ ${it.likes.toLocaleString()} · ⬇ ${it.downloads.toLocaleString()} · ${it.author}`;
+      const files = document.createElement('div'); files.className = 'files';
+      c.append(img, t, s, files);
+      c.onclick = async () => {
+        if (files.childElementCount || files.textContent) return;
+        files.textContent = 'Loading files…';
+        try {
+          const j = await askPi({ kind: 'files', print: it.id });
+          const link = document.createElement('a'); link.href = it.url; link.target = '_blank'; link.rel = 'noopener'; link.className = 'small-btn';
+          link.textContent = 'Open on Printables ↗'; link.onclick = (e) => e.stopPropagation();
+          files.replaceChildren(...j.files.map(f => {
+            const b = document.createElement('button'); b.className = 'small-btn';
+            b.textContent = `＋ ${f.name} (${(f.size / 1e6).toFixed(1)} MB)`;
+            b.onclick = async (e) => {
+              e.stopPropagation();
+              b.disabled = true; b.textContent = `Downloading ${f.name}…`;
+              try {
+                const answer = await askPi({ kind: 'download', print: it.id, file: f.id });
+                if (addModel(await answer.model.arrayBuffer(), f.name)) { $('search').hidden = true; setMode('model'); setMsg(`Added ${f.name}`, 'ok'); }
+                b.textContent = `＋ ${f.name} (added)`;
+              } catch (err) { b.textContent = `Failed: ${err.message}`; }
+              b.disabled = false;
+            };
+            return b;
+          }), ...(j.files.length ? [] : [note('No STL/3MF files here: open it on Printables')]), link);
+        } catch (err) { files.textContent = `Couldn't load files: ${err.message}`; }
+      };
+      return c;
     }
 
     // ---------- install as an app ----------
