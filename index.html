@@ -144,6 +144,8 @@
       #layers .lbl { min-width: 0; flex: 1; }
       #legend { max-height: 45%; overflow-y: auto; }
     }
+    /* Fine-tuning left out of the simple page. Remove this rule, and the fixed values in SIMPLE_SETTINGS, to bring it back */
+    .complex { display: none !important; }
   </style>
   <script type="importmap">
     { "imports": { "three": "./static/vendor/three/build/three.module.js", "three/addons/": "./static/vendor/three/examples/jsm/" } }
@@ -184,7 +186,7 @@
         <button class="small-btn" id="fit">Fit to bed</button><button class="small-btn" id="reset">Reset</button>
       </div>
       <div class="btns">
-        <button class="small-btn" id="layflat">Lay flat on a face</button><button class="small-btn" id="cut-open">Cut</button>
+        <button class="small-btn" id="layflat">Lay flat on a face</button><button class="small-btn complex" id="cut-open">Cut</button>
       </div>
       <span class="hint pick" id="pick-hint" hidden>Click the face of the model that should sit on the bed.</span>
       <div id="cut-panel" hidden>
@@ -193,7 +195,7 @@
         <label class="check"><input type="checkbox" id="cut-flip" checked><span>Turn the top part over<small>So it prints standing on its flat cut face.</small></span></label>
         <div class="btns"><button class="small-btn primary" id="cut-go">Cut in two</button><button class="small-btn" id="cut-cancel">Cancel</button></div>
       </div>
-      <details class="own" id="own"><summary>This model's settings <span class="count"></span></summary>
+      <details class="own complex" id="own"><summary>This model's settings <span class="count"></span></summary>
         <div class="fields" id="own-fields"></div><button class="small-btn reset-own" id="own-reset">Use the plate's settings</button></details>
     </div>
     <label class="check"><input type="checkbox" id="orient"><span>Auto-orient<small>Bambu Studio lays each model on its best face (replaces your rotations).</small></span></label>
@@ -201,21 +203,21 @@
     <h2>Quality</h2>
     <label class="row">Layer height <select id="quality"></select></label>
     <label class="row">Filament <select id="filament"></select></label>
-    <details class="adv" data-group="filament"><summary>Temperature and retraction <span class="count"></span></summary>
+    <details class="adv complex" data-group="filament"><summary>Temperature and retraction <span class="count"></span></summary>
       <div class="fields"></div><button class="small-btn reset-adv">Back to printer defaults</button></details>
 
     <h2>Strength</h2>
-    <label class="row">Infill pattern <select id="pattern"></select></label>
+    <label class="row complex">Infill pattern <select id="pattern"></select></label>
     <div class="slider-head"><span>Infill density</span><span><input type="number" id="infill-num" min="0" max="100"> %</span></div>
     <input type="range" id="infill" min="0" max="100" step="1">
-    <details class="adv" data-group="strength"><summary>Walls and top/bottom <span class="count"></span></summary>
+    <details class="adv complex" data-group="strength"><summary>Walls and top/bottom <span class="count"></span></summary>
       <div class="fields"></div><button class="small-btn reset-adv">Back to printer defaults</button></details>
 
     <h2>Supports &amp; adhesion</h2>
     <div class="seg" id="support">
       <button data-v="OFF">Off</button><button data-v="TREE">Tree</button><button data-v="NORMAL">Normal</button>
     </div>
-    <div id="support-extra">
+    <div id="support-extra" class="complex">
       <div class="slider-head"><span>Thickness</span></div>
       <div class="seg" id="thickness">
         <button data-v="SLIM">Slim</button><button data-v="THICK">Thick</button>
@@ -227,7 +229,7 @@
       <input type="range" id="ibot" min="0" max="10" step="1">
       <span class="hint">Interface layers are the dense layers where support touches the model. More = smoother underside, harder to remove.</span>
       <label class="check"><input type="checkbox" id="plate-only"><span>Only from the build plate<small>No supports standing on the model itself.</small></span></label>
-      <details class="adv" data-group="support"><summary>More support settings <span class="count"></span></summary>
+      <details class="adv complex" data-group="support"><summary>More support settings <span class="count"></span></summary>
         <div class="fields"></div><button class="small-btn reset-adv">Back to printer defaults</button></details>
     </div>
     <label class="row">Bed adhesion <select id="adhesion"></select></label>
@@ -235,12 +237,12 @@
 
     <h2>Speed</h2>
     <label class="row">Print speed <select id="speed"></select></label>
-    <details class="adv" data-group="speed"><summary>Individual speeds <span class="count"></span></summary>
+    <details class="adv complex" data-group="speed"><summary>Individual speeds <span class="count"></span></summary>
       <div class="fields"></div><button class="small-btn reset-adv">Back to printer defaults</button></details>
 
-    <h2>Pause</h2>
-    <label class="row">Pause before layers <input type="text" id="pause-layers" placeholder="e.g. 10, 25" autocomplete="off"></label>
-    <small class="hint">The printer stops before that layer so you can swap filament or drop in a magnet, then you resume on its screen. Layer numbers match the preview slider. Applies to this slice, and clears when the page reloads.</small>
+    <h2 class="complex">Pause</h2>
+    <label class="row complex">Pause before layers <input type="text" id="pause-layers" placeholder="e.g. 10, 25" autocomplete="off"></label>
+    <small class="hint complex">The printer stops before that layer so you can swap filament or drop in a magnet, then you resume on its screen. Layer numbers match the preview slider. Applies to this slice, and clears when the page reloads.</small>
 
     <h2>Filament cost</h2>
     <label class="row"><span id="price-label">Price per kg</span><span>$ <input type="number" id="price" min="0" max="500" step="0.5"></span></label>
@@ -352,6 +354,7 @@
     try { Object.assign(prefs, JSON.parse(localStorage.getItem('a1MiniSlicer') || '{}')); } catch (e) {}
     prefs.prices = { ...DEFAULT_PRICES, ...prefs.prices };
     if (typeof prefs.advanced !== 'object' || !prefs.advanced) prefs.advanced = {};
+    const SIMPLE_SETTINGS = { pattern: 'gyroid', thickness: 'SLIM', interface_top: 2, interface_bottom: 2, build_plate_only: false, advanced: {}, pause_layers: '' };
     function save() { try { localStorage.setItem('a1MiniSlicer', JSON.stringify(prefs)); } catch (e) {} }
 
     function segment(el, key, onChange) {
@@ -1487,9 +1490,9 @@
       const off = !autoArrange && models.find(offBed);
       if (off) return setMsg(`${off.name} is off the bed: drag it back on, or press Arrange`, 'bad');
       // Only fields this version knows: a change saved by an older version must not block slicing
-      const advanced = Object.fromEntries(Object.entries({ ...changes(), ...filamentChanges() }).filter(([name]) => name in OPTIONS.advanced));
-      const settings = { ...prefs, advanced, arrange: autoArrange, pause_layers: $('pause-layers').value }; delete settings.prices;
-      const objects = models.map(m => ({ name: m.name, settings: m.settings }));
+      // Anything saved earlier for the hidden controls is ignored, so a print only uses what's on screen
+      const settings = { ...prefs, ...SIMPLE_SETTINGS, arrange: autoArrange }; delete settings.prices;
+      const objects = models.map(m => ({ name: m.name, settings: {} }));
       const blobs = models.map(toBinarySTL);
       if (blobs.some(b => b.size > 100 * 1024 * 1024)) return setMsg("A model is over GitHub's 100 MB limit. Use a less detailed version of it.", 'bad');
       slicing = true; updateSliceButton();
