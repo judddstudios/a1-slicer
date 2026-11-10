@@ -158,6 +158,9 @@
     #search .files .small-btn { text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: none; color: var(--text); }
     #search .note { grid-column: 1 / -1; color: var(--muted); text-align: center; padding: 30px 0; }
     #search .more { grid-column: 1 / -1; justify-self: center; }
+    .undo-row { display: flex; gap: 6px; margin-top: 8px; }
+    .undo-row button { flex: 1; }
+    .undo-row button:disabled { opacity: .4; cursor: default; }
     /* Fine-tuning left out of the simple page. Remove this rule, and the fixed values in SIMPLE_SETTINGS, to bring it back */
     .complex { display: none !important; }
   </style>
@@ -188,6 +191,7 @@
     <div class="drop" id="drop">Drop <b>.stl</b>, <b>.3mf</b> or <b>.obj</b> files here<br><small>or click to choose (several at once is fine)</small></div>
     <input type="file" id="file" accept=".stl,.3mf,.obj" multiple hidden>
     <ul class="models" id="models"></ul>
+    <div class="undo-row"><button class="small-btn" id="undo" title="Undo (Ctrl+Z)" disabled>↶ Undo</button><button class="small-btn" id="redo" title="Redo (Ctrl+Y)" disabled>↷ Redo</button></div>
     <div class="arrange" id="arrange-row" hidden><span id="arrange-text"></span><button class="small-btn" id="arrange-btn">Arrange</button></div>
     <div class="tools" id="tools" hidden>
       <div class="slider-head" style="margin-top:0"><span>Rotate selected</span></div>
@@ -1550,7 +1554,67 @@
       }
     };
     let lastResult = null;
-    function clearResult() { $('dl').hidden = true; $('summary').textContent = ''; lastResult = null; }
+    function clearResult() { $('dl').hidden = true; $('summary').textContent = ''; lastResult = null; rememberPlateSoon(); }
+
+    // ---------- undo and redo ----------
+    // Every change to the plate passes through clearResult, so the plate is saved just after it. The wait until the current
+    // action has finished makes something like a cut (one model out, two in) a single step, and identical plates aren't saved
+    const MAX_UNDO_STEPS = 50;
+    const undoSteps = [];
+    let undoAt = -1, rememberQueued = false;
+    function plateNow() {
+      const plate = { autoArrange, selectedId, items: models.map(m => ({ m, geo: m.geo, quat: m.quat.clone(), scale: m.scale, pos: m.pos && { ...m.pos }, settings: { ...m.settings } })) };
+      // Auto-arranged positions are recalculated, so only hand-placed ones count as a difference
+      plate.key = JSON.stringify([autoArrange, plate.items.map(i => [i.m.id, i.geo.uuid, i.quat.toArray().map(v => +v.toFixed(6)), i.scale, autoArrange ? null : i.pos, i.settings])]);
+      return plate;
+    }
+    function updateUndoButtons() { $('undo').disabled = undoAt <= 0; $('redo').disabled = undoAt >= undoSteps.length - 1; }
+    function rememberPlate() {
+      rememberQueued = false;
+      const plate = plateNow();
+      if (undoSteps[undoAt]?.key === plate.key) return;
+      undoSteps.length = undoAt + 1;
+      undoSteps.push(plate);
+      if (undoSteps.length > MAX_UNDO_STEPS) undoSteps.shift();
+      undoAt = undoSteps.length - 1;
+      updateUndoButtons();
+    }
+    function rememberPlateSoon() { if (!rememberQueued) { rememberQueued = true; setTimeout(rememberPlate); } }
+    function restorePlate(plate) {
+      setPicking(false); closeCut();
+      for (const m of models) if (!plate.items.some(i => i.m === m)) scene.remove(m.mesh);
+      models.length = 0;
+      for (const i of plate.items) {
+        Object.assign(i.m, { geo: i.geo, scale: i.scale, pos: i.pos && { ...i.pos }, settings: { ...i.settings } });
+        i.m.quat.copy(i.quat); i.m.mesh.geometry = i.geo;
+        models.push(i.m); scene.add(i.m.mesh);
+        measure(i.m);
+      }
+      autoArrange = plate.autoArrange;
+      if (!models.some(m => m.id === selectedId)) selectedId = models.some(m => m.id === plate.selectedId) ? plate.selectedId : (models[models.length - 1]?.id ?? null);
+      $('empty').hidden = models.length > 0 || !!toolpaths;
+      clearResult(); setMode('model');
+      updateUndoButtons();
+    }
+    function stepPlate(by) {
+      rememberPlate();  // Picks up a change made a moment ago
+      const target = undoSteps[undoAt + by];
+      if (!target) return;
+      undoAt += by;
+      restorePlate(target);
+    }
+    $('undo').onclick = () => stepPlate(-1);
+    $('redo').onclick = () => stepPlate(1);
+    window.addEventListener('keydown', e => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+      const key = e.key.toLowerCase();
+      if (key !== 'z' && key !== 'y') return;
+      // Typing fields keep their own undo
+      if (e.target.matches?.('input:not([type=range]):not([type=checkbox]), textarea, select') || !$('search').hidden) return;
+      e.preventDefault();
+      stepPlate(key === 'y' || e.shiftKey ? 1 : -1);
+    });
+    rememberPlate();
 
     let activeJob = null;
     const WAIT_FOR_PI_MS = 45000;
